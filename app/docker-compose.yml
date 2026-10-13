@@ -1,0 +1,117 @@
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - app-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    container_name: kafka
+    restart: on-failure:5
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:29092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"      # Externo
+      - "29092:29092"    # Interno
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "true"
+      KAFKA_BROKER: "kafka:29092"
+    networks:
+      - app-network
+  kowl:
+    image: quay.io/cloudhut/kowl:v1.5.0
+    depends_on:
+      - kafka
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      KAFKA_BROKERS: kafka:29092
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - KAFKA_BROKER=kafka:29092
+      - MONGO_URI=mongodb://mongodb:27017/
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    networks:
+      - app-network
+
+  consumer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-u", "kafka_consumer.py"]
+    env_file:
+      - .env
+    environment:
+      - KAFKA_BROKER=kafka:29092
+      - MONGO_URI=mongodb://mongodb:27017/
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    networks:
+      - app-network
+
+  streamlit:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    networks:
+      - app-network
+    environment:
+      - FASTAPI_HOST=fastapi
+
+  mongodb:
+    image: mongo:8.0.4
+    volumes:
+      - mongodb-data:/data/db
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    networks:
+      - app-network
+      
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongodb-data:

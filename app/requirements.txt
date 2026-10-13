@@ -1,0 +1,10 @@
+fastapi==0.143.0
+uvicorn==0.54.0
+google-genai==2.30.0
+pydantic==2.14.1
+python-dotenv==1.2.4
+pymongo==4.18.3
+confluent-kafka==2.16.0
+kafka-python==3.0.11
+streamlit==1.65.0
+requests==2.34.2
